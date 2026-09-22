@@ -1,0 +1,4 @@
+aws_region   = "us-east-1"
+project_name = "nyc-taxi-batch-etl"
+bucket_name  = "changeme-nyc-taxi-dea-<unique-suffix>"
+alert_email  = "you@example.com"
