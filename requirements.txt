@@ -1,0 +1,2 @@
+# Runtime deps for scripts/ (pipeline helpers run from your machine).
+boto3>=1.34
