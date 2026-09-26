@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    ignore:
+      # pinned to the Glue 4.0 runtime (Spark 3.3)
+      - dependency-name: pyspark
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  - package-ecosystem: terraform
+    directory: /infra
+    schedule:
+      interval: monthly
+  - package-ecosystem: terraform
+    directory: /bootstrap
+    schedule:
+      interval: monthly

@@ -1,0 +1,47 @@
+name: terraform-init
+description: >
+  Install Terraform and init infra/ against the S3 remote-state backend.
+  The backend block is generated here (backend_override.tf, gitignored) so local
+  development keeps using local state.
+
+inputs:
+  state-bucket:
+    description: Terraform state bucket (bootstrap output TF_STATE_BUCKET)
+    required: true
+  state-key:
+    description: Object key for this project's state
+    default: 01-batch-etl-glue-athena/terraform.tfstate
+  region:
+    description: Region of the state bucket
+    required: true
+  terraform-version:
+    description: Terraform CLI version
+    default: "1.11.4"
+
+runs:
+  using: composite
+  steps:
+    - uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: false # keep stdout clean for `terraform output -json`
+
+    - name: Configure S3 backend
+      shell: bash
+      working-directory: infra
+      run: printf 'terraform {\n  backend "s3" {}\n}\n' > backend_override.tf
+
+    - name: terraform init
+      shell: bash
+      working-directory: infra
+      env:
+        STATE_BUCKET: ${{ inputs.state-bucket }}
+        STATE_KEY: ${{ inputs.state-key }}
+        STATE_REGION: ${{ inputs.region }}
+      run: >
+        terraform init -input=false
+        -backend-config="bucket=$STATE_BUCKET"
+        -backend-config="key=$STATE_KEY"
+        -backend-config="region=$STATE_REGION"
+        -backend-config="encrypt=true"
+        -backend-config="use_lockfile=true"

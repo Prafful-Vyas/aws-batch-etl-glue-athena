@@ -1,0 +1,79 @@
+name: terraform-plan
+
+# Speculative plan on pull requests, posted as a PR comment. Uses the read-only
+# plan role. Skipped until the repo variables from bootstrap/ are configured.
+on:
+  pull_request:
+    paths:
+      - infra/**
+      - glue_jobs/**
+      - sql/**
+      - .github/workflows/terraform-plan.yml
+      - .github/actions/terraform-init/**
+
+permissions:
+  contents: read
+  id-token: write # OIDC -> AWS
+  pull-requests: write # plan comment
+
+concurrency:
+  group: plan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    # Fork PRs get no OIDC token for this repo's roles; skip them.
+    if: vars.AWS_PLAN_ROLE_ARN != '' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_bucket_name: ${{ vars.DATA_BUCKET_NAME }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_pipeline_schedule: ${{ vars.PIPELINE_SCHEDULE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: ./.github/actions/terraform-init
+        with:
+          state-bucket: ${{ vars.TF_STATE_BUCKET }}
+          region: ${{ vars.AWS_REGION }}
+      - name: terraform plan
+        id: plan
+        working-directory: infra
+        run: |
+          set +e
+          terraform plan -input=false -no-color -lock-timeout=5m -detailed-exitcode > plan.txt 2>&1
+          code=$?
+          set -e
+          cat plan.txt
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          # 0 = no changes, 2 = changes; anything else is an error
+          [ "$code" -eq 0 ] || [ "$code" -eq 2 ]
+      - name: Comment plan on PR
+        if: always() && steps.plan.outcome != 'skipped'
+        uses: actions/github-script@v7
+        env:
+          PLAN_EXITCODE: ${{ steps.plan.outputs.exitcode }}
+        with:
+          script: |
+            const fs = require('fs');
+            let plan = fs.existsSync('infra/plan.txt') ? fs.readFileSync('infra/plan.txt', 'utf8') : '(no plan output)';
+            const max = 60000;
+            if (plan.length > max) plan = '...(truncated)...\n' + plan.slice(-max);
+            const marker = '<!-- terraform-plan -->';
+            const status = { '0': 'no changes', '2': 'changes pending' }[process.env.PLAN_EXITCODE] ?? 'failed';
+            const fence = '```';
+            const body = `${marker}\n### Terraform plan: ${status}\n<details><summary>Show plan</summary>\n\n${fence}\n${plan}\n${fence}\n</details>`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find((c) => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

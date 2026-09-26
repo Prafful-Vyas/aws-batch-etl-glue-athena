@@ -1,0 +1,103 @@
+name: deploy
+
+# CD: on every push to main, run CI, plan with the read-only role, then apply
+# exactly that saved plan from the "production" environment (add required
+# reviewers to the environment to make apply a manual approval).
+on:
+  push:
+    branches: [main]
+    paths:
+      - infra/**
+      - glue_jobs/**
+      - sql/**
+      - .github/workflows/deploy.yml
+      - .github/actions/terraform-init/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+# Never run two applies against the same state; never cancel one mid-apply.
+concurrency:
+  group: terraform-production
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+  TF_VAR_bucket_name: ${{ vars.DATA_BUCKET_NAME }}
+  TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+  TF_VAR_pipeline_schedule: ${{ vars.PIPELINE_SCHEDULE }}
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  plan:
+    needs: ci
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: ./.github/actions/terraform-init
+        with:
+          state-bucket: ${{ vars.TF_STATE_BUCKET }}
+          region: ${{ vars.AWS_REGION }}
+      - name: terraform plan
+        id: plan
+        working-directory: infra
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=tfplan
+          code=$?
+          set -e
+          [ "$code" -eq 0 ] || [ "$code" -eq 2 ] || exit "$code"
+          echo "changes=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          {
+            echo '### Terraform plan'
+            echo '```'
+            terraform show -no-color tfplan
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: steps.plan.outputs.changes == 'true'
+        with:
+          name: tfplan
+          path: infra/tfplan
+          retention-days: 3 # plan files can contain sensitive values
+
+  apply:
+    needs: plan
+    if: needs.plan.outputs.changes == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: ./.github/actions/terraform-init
+        with:
+          state-bucket: ${{ vars.TF_STATE_BUCKET }}
+          region: ${{ vars.AWS_REGION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: infra
+      # Fails with "Saved plan is stale" if state changed since the plan; re-run the workflow.
+      - run: terraform apply -input=false -lock-timeout=5m tfplan
+        working-directory: infra
+      - name: Smoke check
+        working-directory: infra
+        run: |
+          aws glue get-job --job-name "$(terraform output -raw glue_job_name)" --query 'Job.Name' --output text
+          aws glue get-workflow --name "$(terraform output -raw glue_workflow_name)" --query 'Workflow.Name' --output text
+          aws athena get-work-group --work-group "$(terraform output -raw athena_workgroup)" --query 'WorkGroup.State' --output text

@@ -1,0 +1,56 @@
+name: run-pipeline
+
+# Manually land TLC months into raw/ and run the Glue workflow end to end.
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: TLC service
+        type: choice
+        options: [yellow, green]
+        default: yellow
+      months:
+        description: Space-separated months to load (YYYY-MM). Leave empty to only re-run the pipeline.
+        type: string
+        default: "2024-01"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: run-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 3600
+      - uses: ./.github/actions/terraform-init
+        with:
+          state-bucket: ${{ vars.TF_STATE_BUCKET }}
+          region: ${{ vars.AWS_REGION }}
+      - name: Load source data
+        if: inputs.months != ''
+        env:
+          SERVICE: ${{ inputs.service }}
+          MONTHS: ${{ inputs.months }}
+        run: |
+          bucket="$(terraform -chdir=infra output -raw bucket_name)"
+          # MONTHS is intentionally word-split into separate arguments
+          # shellcheck disable=SC2086
+          python scripts/load_trip_data.py --bucket "$bucket" --service "$SERVICE" --months $MONTHS
+      - name: Run Glue workflow
+        run: python scripts/run_pipeline.py

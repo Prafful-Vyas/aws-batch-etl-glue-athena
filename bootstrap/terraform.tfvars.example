@@ -1,0 +1,7 @@
+aws_region        = "us-east-1"
+project_name      = "nyc-taxi-batch-etl"
+data_bucket_name  = "changeme-nyc-taxi-dea-<unique-suffix>" # same as infra/terraform.tfvars bucket_name
+state_bucket_name = "changeme-tfstate-<unique-suffix>"
+github_repository = "your-github-user/01-batch-etl-glue-athena"
+
+# create_oidc_provider = false  # if the account already has the GitHub OIDC provider

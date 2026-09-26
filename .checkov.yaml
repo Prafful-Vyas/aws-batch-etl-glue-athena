@@ -1,0 +1,14 @@
+# Checkov config used by CI (.github/workflows/ci.yml).
+# Resource-specific exceptions are inline (#checkov:skip=...) next to the resource.
+directory:
+  - infra
+  - bootstrap
+framework:
+  - terraform
+compact: true
+quiet: true
+# Accepted for a single-account personal project; revisit for production use:
+skip-check:
+  - CKV_AWS_18 # S3 server access logging: CloudTrail data events cover audit needs; avoids a log bucket
+  - CKV_AWS_144 # S3 cross-region replication: raw data is re-downloadable, processed is rebuildable
+  - CKV2_AWS_62 # S3 event notifications: pipeline is schedule/on-demand driven, not event driven
