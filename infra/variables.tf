@@ -38,3 +38,27 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "glue_job_timeout_minutes" {
+  description = "Glue job timeout. A run that exceeds it ends in TIMEOUT and triggers the failure alert."
+  type        = number
+  default     = 60
+}
+
+variable "dq_fail_on_error" {
+  description = "Fail the ETL job (and skip the write) when any Data Quality rule fails. false = log and publish results only."
+  type        = bool
+  default     = true
+}
+
+variable "pipeline_schedule" {
+  description = "Glue cron expression for the crawler -> ETL workflow, e.g. \"cron(0 6 25 * ? *)\" (TLC publishes monthly with a ~2 month lag). Empty = on-demand only."
+  type        = string
+  default     = ""
+}
+
+variable "projection_year_range" {
+  description = "Partition projection range for the processed table's year partition, as \"min,max\"."
+  type        = string
+  default     = "2019,2030"
+}

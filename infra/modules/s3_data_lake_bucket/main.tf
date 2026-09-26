@@ -32,8 +32,19 @@ resource "aws_s3_bucket_public_access_block" "this" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "this" {
-  count  = length(var.lifecycle_rules) > 0 ? 1 : 0
+  #checkov:skip=CKV_AWS_300:False positive - checkov drops the static rule below when a dynamic "rule" is also present
   bucket = aws_s3_bucket.this.id
+
+  # Failed multipart uploads (e.g. an aborted Spark/Glue write) are otherwise
+  # billed forever and invisible in normal listings.
+  rule {
+    id     = "abort-incomplete-multipart-uploads"
+    status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
 
   dynamic "rule" {
     for_each = var.lifecycle_rules
