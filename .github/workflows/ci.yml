@@ -23,8 +23,8 @@ jobs:
   python-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.10"
       - run: pip install ruff==0.6.9
@@ -34,13 +34,13 @@ jobs:
   python-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.10" # Glue 4.0 runtime
           cache: pip
           cache-dependency-path: requirements-dev.txt
-      - uses: actions/setup-java@v4 # PySpark needs a JDK
+      - uses: actions/setup-java@v6 # PySpark needs a JDK
         with:
           distribution: temurin
           java-version: "11"
@@ -56,14 +56,14 @@ jobs:
       run:
         working-directory: ${{ matrix.stack }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TF_VERSION }}
       - run: terraform fmt -check -recursive -diff
       - run: terraform init -backend=false -input=false
       - run: terraform validate
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@v6
         with:
           tflint_version: v0.53.0
       - run: tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
@@ -74,8 +74,8 @@ jobs:
   terraform-security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install checkov==3.2.255
