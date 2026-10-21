@@ -1,4 +1,4 @@
 # Local tooling. Glue 4.0 runs Spark 3.3, so pin PySpark to match.
 pyspark==3.3.2
 pytest>=8
-boto3>=1.34
+boto3>=1.43.114
